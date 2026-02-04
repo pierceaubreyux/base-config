@@ -355,6 +355,16 @@
                         <button class="move-btn" onclick="moveProp('y', -1)">↓ Y</button>
                         <button class="move-btn" onclick="moveProp('z', 1)">Z ↓</button>
                     </div>
+                    
+                    <div style="margin-top: 12px;">
+                        <div class="move-title">SCALE: <span id="scale-value">1.0</span>x</div>
+                        <input type="range" id="scale-slider" min="0.1" max="3" step="0.1" value="1" style="width: 100%;">
+                    </div>
+                    
+                    <div style="margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                        <button class="move-btn" onclick="rotateProp(-1)">↶ Rotate</button>
+                        <button class="move-btn" onclick="rotateProp(1)">Rotate ↷</button>
+                    </div>
                 </div>
             </div>
 
@@ -718,7 +728,25 @@
                 list.appendChild(item);
             });
 
-            document.getElementById('move-controls').style.display = selectedProp ? 'block' : 'none';
+            const moveControls = document.getElementById('move-controls');
+            moveControls.style.display = selectedProp ? 'block' : 'none';
+            
+            // Update scale slider when prop is selected
+            if (selectedProp) {
+                const scaleSlider = document.getElementById('scale-slider');
+                const currentScale = selectedProp.scale.x; // Assuming uniform scale
+                scaleSlider.value = currentScale;
+                document.getElementById('scale-value').textContent = currentScale.toFixed(1);
+                
+                // Add event listener for scale changes
+                scaleSlider.oninput = (e) => {
+                    const newScale = parseFloat(e.target.value);
+                    if (selectedProp) {
+                        selectedProp.scale.set(newScale, newScale, newScale);
+                        document.getElementById('scale-value').textContent = newScale.toFixed(1);
+                    }
+                };
+            }
         }
 
         function selectPropById(id) {
@@ -760,6 +788,12 @@
             if (axis === 'x') selectedProp.position.x += direction * step;
             if (axis === 'y') selectedProp.position.y += direction * step;
             if (axis === 'z') selectedProp.position.z += direction * step;
+        }
+
+        window.rotateProp = function(direction) {
+            if (!selectedProp) return;
+            const step = Math.PI / 8; // 22.5 degrees
+            selectedProp.rotation.y += direction * step;
         }
 
         window.exportSTL = function() {
