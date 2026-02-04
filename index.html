@@ -52,6 +52,25 @@
             margin: 2px 0;
         }
 
+        #loading-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px 30px;
+            border-radius: 8px;
+            color: #60a5fa;
+            font-size: 14px;
+            border: 1px solid rgba(96, 165, 250, 0.3);
+            z-index: 100;
+            display: none;
+        }
+
+        #loading-overlay.visible {
+            display: block;
+        }
+
         #control-panel {
             width: 340px;
             background: #0d0d0d;
@@ -115,9 +134,46 @@
             color: #60a5fa;
         }
 
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         input[type="range"] {
             width: 100%;
             accent-color: #60a5fa;
+        }
+
+        .prop-category {
+            margin-bottom: 16px;
+        }
+
+        .prop-category-title {
+            font-size: 9px;
+            color: #888;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .prop-variant-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+
+        .variant-btn {
+            padding: 8px 4px;
+            font-size: 9px;
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            color: #60a5fa;
+        }
+
+        .variant-btn:hover {
+            background: #2a2a2a;
+            border-color: #60a5fa;
         }
 
         .prop-list {
@@ -240,6 +296,9 @@
                 <div class="item">Click + Drag: Rotate Camera</div>
                 <div class="item">Scroll: Zoom In/Out</div>
             </div>
+            <div id="loading-overlay">
+                <div>Loading 3D models...</div>
+            </div>
         </div>
         <div id="control-panel">
             <h1>BASE BUILDER</h1>
@@ -261,7 +320,26 @@
 
             <div class="section">
                 <div class="section-title">ADD PROPS</div>
-                <div class="button-grid" id="prop-buttons"></div>
+                
+                <!-- Rocks with variants -->
+                <div class="prop-category">
+                    <div class="prop-category-title">Rocks (Real Models)</div>
+                    <div class="prop-variant-grid">
+                        <button class="variant-btn" onclick="addProp('rock', 'rock1.glb')">Rock 1</button>
+                        <button class="variant-btn" onclick="addProp('rock', 'rock2.glb')">Rock 2</button>
+                        <button class="variant-btn" onclick="addProp('rock', 'rock3.glb')">Rock 3</button>
+                    </div>
+                </div>
+
+                <!-- Procedural props -->
+                <div class="prop-category">
+                    <div class="prop-category-title">Procedural (Placeholder)</div>
+                    <div class="button-grid">
+                        <button class="prop-btn" onclick="addProp('pillar', null)">+ Pillar</button>
+                        <button class="prop-btn" onclick="addProp('crystal', null)">+ Crystal</button>
+                        <button class="prop-btn" onclick="addProp('skull', null)">+ Skull</button>
+                    </div>
+                </div>
             </div>
 
             <div class="section" id="props-section" style="display: none;">
@@ -287,13 +365,15 @@
     <script type="importmap">
     {
         "imports": {
-            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
         }
     }
     </script>
 
     <script type="module">
         import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
         // Global state
         let scene, camera, renderer;
@@ -302,6 +382,8 @@
         let selectedProp = null;
         let mouseDown = false;
         let mousePos = { x: 0, y: 0 };
+        let loader = new GLTFLoader();
+        let loadedModels = {}; // Cache for loaded models
 
         // Configuration
         let baseShape = 'cylinder';
@@ -316,7 +398,6 @@
             marble: { color: 0xf8f9fa, roughness: 0.2, metalness: 0.1 },
             obsidian: { color: 0x1a1a1a, roughness: 0.4, metalness: 0.6 }
         };
-        const propTypes = ['rock', 'pillar', 'crystal', 'skull'];
 
         // Initialize
         function init() {
@@ -391,6 +472,9 @@
             // Create initial base
             updateBase();
 
+            // Preload GLB models
+            preloadModels();
+
             // Animate
             animate();
         }
@@ -416,22 +500,53 @@
                 materialContainer.appendChild(btn);
             });
 
-            // Prop buttons
-            const propContainer = document.getElementById('prop-buttons');
-            propTypes.forEach(prop => {
-                const btn = document.createElement('button');
-                btn.textContent = '+ ' + prop;
-                btn.className = 'prop-btn';
-                btn.onclick = () => addProp(prop);
-                propContainer.appendChild(btn);
-            });
-
             // Size slider
             const slider = document.getElementById('size-slider');
             slider.addEventListener('input', (e) => {
                 baseSize = parseFloat(e.target.value);
                 document.getElementById('size-value').textContent = baseSize.toFixed(1);
                 updateBase();
+            });
+        }
+
+        function preloadModels() {
+            const modelPaths = ['rock1.glb', 'rock2.glb', 'rock3.glb'];
+            const loadingOverlay = document.getElementById('loading-overlay');
+            loadingOverlay.classList.add('visible');
+            
+            let loadedCount = 0;
+            
+            modelPaths.forEach(path => {
+                loader.load(
+                    `assets/${path}`,
+                    (gltf) => {
+                        loadedModels[path] = gltf.scene;
+                        loadedCount++;
+                        
+                        // Enable shadows on loaded models
+                        gltf.scene.traverse((child) => {
+                            if (child.isMesh) {
+                                child.castShadow = true;
+                                child.receiveShadow = true;
+                            }
+                        });
+                        
+                        if (loadedCount === modelPaths.length) {
+                            loadingOverlay.classList.remove('visible');
+                            console.log('All models loaded successfully!');
+                        }
+                    },
+                    (progress) => {
+                        console.log(`Loading ${path}: ${(progress.loaded / progress.total * 100).toFixed(0)}%`);
+                    },
+                    (error) => {
+                        console.error(`Error loading ${path}:`, error);
+                        loadedCount++;
+                        if (loadedCount === modelPaths.length) {
+                            loadingOverlay.classList.remove('visible');
+                        }
+                    }
+                );
             });
         }
 
@@ -450,8 +565,7 @@
         function updateButtonStates(containerId, activeValue) {
             const buttons = document.getElementById(containerId).querySelectorAll('button');
             buttons.forEach(btn => {
-                btn.className = btn.textContent.replace('+ ', '') === activeValue ? 'active' : '';
-                if (containerId === 'prop-buttons') btn.className += ' prop-btn';
+                btn.className = btn.textContent === activeValue ? 'active' : '';
             });
         }
 
@@ -494,57 +608,77 @@
             scene.add(baseMesh);
         }
 
-        function addProp(propType) {
-            let geometry, material;
-            const id = Date.now();
+        window.addProp = function(propType, modelFile) {
+            const id = Date.now() + Math.random(); // Ensure unique ID
 
-            switch (propType) {
-                case 'rock':
-                    geometry = new THREE.DodecahedronGeometry(0.4, 0);
-                    material = new THREE.MeshStandardMaterial({ 
-                        color: 0x5a5a5a, 
-                        roughness: 0.95,
-                        flatShading: true 
-                    });
-                    break;
-                case 'pillar':
-                    geometry = new THREE.CylinderGeometry(0.15, 0.18, 1.5, 8);
-                    material = new THREE.MeshStandardMaterial({ 
-                        color: 0xd4d4d4, 
-                        roughness: 0.7 
-                    });
-                    break;
-                case 'crystal':
-                    geometry = new THREE.ConeGeometry(0.3, 1.2, 6);
-                    material = new THREE.MeshStandardMaterial({ 
-                        color: 0x60a5fa,
-                        roughness: 0.1,
-                        metalness: 0.5,
-                        transparent: true,
-                        opacity: 0.8
-                    });
-                    break;
-                case 'skull':
-                    geometry = new THREE.SphereGeometry(0.25, 16, 16);
-                    material = new THREE.MeshStandardMaterial({ 
-                        color: 0xe8e4d9, 
-                        roughness: 0.9 
-                    });
-                    break;
+            if (modelFile && loadedModels[modelFile]) {
+                // Use loaded GLB model
+                const model = loadedModels[modelFile].clone();
+                
+                // Position the model
+                model.position.set(
+                    (Math.random() - 0.5) * baseSize * 1.5,
+                    0.5, // Start at base level
+                    (Math.random() - 0.5) * baseSize * 1.5
+                );
+                
+                // Scale to reasonable size (adjust as needed)
+                const scale = 0.5;
+                model.scale.set(scale, scale, scale);
+                
+                model.userData = { id, type: propType, modelFile };
+                
+                scene.add(model);
+                props.push(model);
+                
+            } else {
+                // Fallback to procedural geometry
+                let geometry, material;
+
+                switch (propType) {
+                    case 'pillar':
+                        geometry = new THREE.CylinderGeometry(0.15, 0.18, 1.5, 8);
+                        material = new THREE.MeshStandardMaterial({ 
+                            color: 0xd4d4d4, 
+                            roughness: 0.7 
+                        });
+                        break;
+                    case 'crystal':
+                        geometry = new THREE.ConeGeometry(0.3, 1.2, 6);
+                        material = new THREE.MeshStandardMaterial({ 
+                            color: 0x60a5fa,
+                            roughness: 0.1,
+                            metalness: 0.5,
+                            transparent: true,
+                            opacity: 0.8
+                        });
+                        break;
+                    case 'skull':
+                        geometry = new THREE.SphereGeometry(0.25, 16, 16);
+                        material = new THREE.MeshStandardMaterial({ 
+                            color: 0xe8e4d9, 
+                            roughness: 0.9 
+                        });
+                        break;
+                    default:
+                        geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                        material = new THREE.MeshStandardMaterial({ color: 0x888888 });
+                }
+
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(
+                    (Math.random() - 0.5) * baseSize * 1.5,
+                    propType === 'pillar' ? 1.25 : 0.75,
+                    (Math.random() - 0.5) * baseSize * 1.5
+                );
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                mesh.userData = { id, type: propType };
+
+                scene.add(mesh);
+                props.push(mesh);
             }
 
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.position.set(
-                (Math.random() - 0.5) * baseSize * 1.5,
-                propType === 'pillar' ? 1.25 : 0.75,
-                (Math.random() - 0.5) * baseSize * 1.5
-            );
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            mesh.userData = { id, type: propType };
-
-            scene.add(mesh);
-            props.push(mesh);
             updatePropList();
         }
 
@@ -567,7 +701,10 @@
                 item.className = 'prop-item' + (selectedProp === prop ? ' selected' : '');
 
                 const selectBtn = document.createElement('button');
-                selectBtn.textContent = prop.userData.type.toUpperCase();
+                const displayName = prop.userData.modelFile 
+                    ? prop.userData.modelFile.replace('.glb', '').toUpperCase()
+                    : prop.userData.type.toUpperCase();
+                selectBtn.textContent = displayName;
                 selectBtn.className = 'prop-select';
                 selectBtn.onclick = () => selectPropById(prop.userData.id);
 
@@ -594,8 +731,19 @@
             if (index !== -1) {
                 const prop = props[index];
                 scene.remove(prop);
-                prop.geometry.dispose();
-                prop.material.dispose();
+                
+                // Dispose geometry and materials
+                prop.traverse((child) => {
+                    if (child.isMesh) {
+                        child.geometry?.dispose();
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(mat => mat.dispose());
+                        } else {
+                            child.material?.dispose();
+                        }
+                    }
+                });
+                
                 props.splice(index, 1);
                 
                 if (selectedProp?.userData.id === id) {
